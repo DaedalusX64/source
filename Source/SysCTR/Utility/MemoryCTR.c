@@ -5,7 +5,7 @@
 
 #include "MemoryCTR.h"
 
-typedef int (*ctr_callback_type)(void);
+typedef s32 (*ctr_callback_type)(void);
 
 int __stacksize__ = 2 * 1024 * 1024;
 
@@ -41,9 +41,9 @@ static void ctrEnableAllServices(void)
 //-----------------------------------------------------------------------------
 int _SetMemoryPermission(void *buffer, int size, int permission)
 {
-	unsigned int currentHandle;
+	Handle currentHandle;
 	svcDuplicateHandle(&currentHandle, 0xFFFF8001);
-	int res = svcControlProcessMemory(currentHandle, buffer, 0, size, MEMOP_PROT, permission);
+	int res = svcControlProcessMemory(currentHandle, (uintptr_t)buffer, 0, size, MEMOP_PROT, permission);
 	svcCloseHandle(currentHandle);
 
 	return res;
