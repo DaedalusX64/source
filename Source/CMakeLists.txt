@@ -135,6 +135,8 @@ else()
 	elseif(CTR)
 		option(DAEDALUS_ENABLE_OS_HOOKS "Enable High Level Emulation Hooks" OFF) ## Causes some weird black screen issues
 		option(DAEDALUS_CTR "3DS Specific Options" ON)
+	elseif(VITA)
+		option(DAEDALUS_VITA "" ON)
 	endif()
 
 # Profiler Options

@@ -81,6 +81,11 @@ if(DAEDALUS_PSP)
     add_compile_definitions(DAEDALUS_PSP)
 endif(DAEDALUS_PSP)
 
+if(DAEDALUS_VITA)
+    message("DAEDALUS_VITA=ON")
+    add_compile_definitions(DAEDALUS_VITA)
+endif(DAEDALUS_VITA)
+
 if(DAEDALUS_PSP_USE_ME)
     message("DAEDALUS_PSP_USE_ME=ON")
     add_compile_definitions(DAEDALUS_PSP_USE_ME)

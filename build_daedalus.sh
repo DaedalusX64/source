@@ -23,6 +23,9 @@ case "$1" in
     CMAKE="cmake -DCMAKE_TOOLCHAIN_FILE="$DEVKITPRO/cmake/3DS.cmake""
     CMAKEDEFINES+="-DCTR=1"
     ;;
+    VITA) 
+    CMAKE="cmake -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake""
+    ;;
     *)
     CMAKE=cmake
     CMAKEDEFINES=""
