@@ -1,7 +1,7 @@
 #ifndef SYSGLES_GL_H_
 #define SYSGLES_GL_H_
 
-#include <GLES3/gl3.h>
+#include <GLES2/gl2.h>
 #include <SDL2/SDL_opengl.h>
 #include <SDL2/SDL.h>
 

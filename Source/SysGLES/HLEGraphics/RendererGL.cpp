@@ -5,7 +5,7 @@
 #include <iostream>
 #include <filesystem>    
 
-#include <GLES3/gl3.h>
+#include <GLES2/gl2.h>
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>  
 #include <SDL2/SDL_syswm.h>
@@ -112,8 +112,8 @@ bool initgl()
     gRDPStateManager.SetEmulateMirror(!gAccurateUVPipe);
 
     // Generate VAO
-    glGenVertexArrays(1, &gVAO);
-    glBindVertexArray(gVAO);
+    //glGenVertexArrays(1, &gVAO);
+    //glBindVertexArray(gVAO);
 
     // Generate VBOs
     glGenBuffers(kNumBuffers, gVBOs);
@@ -129,6 +129,9 @@ bool initgl()
     // Color buffer
     glBindBuffer(GL_ARRAY_BUFFER, gVBOs[kColorBuffer]);
     glBufferData(GL_ARRAY_BUFFER, sizeof(gColorBuffer), gColorBuffer, GL_DYNAMIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), (void*)0);
 
     return true;
 }

@@ -128,7 +128,7 @@ else()
 
 	elseif(UNIX)
 		if ((${CMAKE_SYSTEM_PROCESSOR} STREQUAL "aarch64" AND CMAKE_SYSTEM_NAME STREQUAL "Linux") OR (${CMAKE_SYSTEM_PROCESSOR} STREQUAL "armv" AND CMAKE_SYSTEM_NAME STREQUAL "Linux"))
-			option(DAEDALUS_GLES "OpenGLES 3.1 Renderer" ON)
+			option(DAEDALUS_GLES "OpenGLES 2.1 Renderer" ON)
 		else()
 		option(DAEDALUS_GL "OpenGL Renderer" ON)
 		endif()

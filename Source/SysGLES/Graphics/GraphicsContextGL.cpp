@@ -117,7 +117,7 @@ bool GraphicsContextGL::Initialise()
 
     // Create the window
     gWindow = SDL_CreateWindow( 
-        "Daedalus - GLES 3.1", 
+        "Daedalus - GLES 2.1", 
         SDL_WINDOWPOS_CENTERED, 
         SDL_WINDOWPOS_CENTERED, 
         SCREEN_WIDTH, 

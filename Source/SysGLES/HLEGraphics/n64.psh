@@ -7,7 +7,7 @@ precision highp int;
 // 1. Macro trick to avoid redefinition of built-in in ES 3.0
 // --------------------------------------------------------
 #ifdef GL_ES
-#if __VERSION__ < 310
+#if __VERSION__ < 210
     // Only apply if we really end up at ES 3.0 environment
     #define texelFetch myTexelFetch
 #endif
