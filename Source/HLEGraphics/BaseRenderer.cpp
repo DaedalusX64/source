@@ -64,7 +64,7 @@ struct TempVerts
 
 	~TempVerts()
 	{
-#if defined(DAEDALUS_GL) || defined(DAEDALUS_CTR)
+#if defined(DAEDALUS_GL) || defined(DAEDALUS_CTR) || defined(DAEDALUS_GLES)
 		free(Verts);
 #endif
 	}
@@ -75,7 +75,7 @@ struct TempVerts
 #ifdef DAEDALUS_PSP
 		Verts = static_cast<DaedalusVtx*>(sceGuGetMemory(bytes));
 #endif
-#if defined(DAEDALUS_GL) || defined(DAEDALUS_CTR)
+#if defined(DAEDALUS_GL) || defined(DAEDALUS_CTR) || defined(DAEDALUS_GLES)
 		Verts = static_cast<DaedalusVtx*>(malloc(bytes));
 #endif
 
@@ -336,7 +336,7 @@ void BaseRenderer::InitViewport()
 
 
 
-#if defined(DAEDALUS_GL) || defined(DAEDALUS_CTR)
+#if defined(DAEDALUS_GL) || defined(DAEDALUS_CTR) || defined(DAEDALUS_GLES)
 	f32 w = mScreenWidth;
 	f32 h = mScreenHeight;
 
@@ -397,7 +397,7 @@ void BaseRenderer::UpdateViewport()
 
 	sceGuOffset(vx - (vp_w/2),vy - (vp_h/2));
 	sceGuViewport(vx + vp_x, vy + vp_y, vp_w, vp_h);
-#elif defined(DAEDALUS_GL) || defined(DAEDALUS_CTR)
+#elif defined(DAEDALUS_GL) || defined(DAEDALUS_CTR) || defined(DAEDALUS_GLES)
 	glViewport(vp_x, (s32)mScreenHeight - (vp_h + vp_y), vp_w, vp_h);
 #ifdef DAEDALUS_ENABLE_ASSERTS
 #else
@@ -1633,7 +1633,7 @@ void BaseRenderer::UpdateTileSnapshots( u32 tile_idx )
 		// LOD is disabled - use two textures
 		UpdateTileSnapshot( 1, tile_idx + 1 );
 	}
-#elif defined(DAEDALUS_GL) || defined(RDP_USE_TEXEL1) || defined(DAEDALUS_CTR)
+#elif defined(DAEDALUS_GL) || defined(RDP_USE_TEXEL1) || defined(DAEDALUS_CTR) || defined(DAEDALUS_GLES)
 // FIXME(strmnnrmn): What's RDP_USE_TEXEL1? Can we remove it?
 
 	if (gRDPOtherMode.cycle_type == CYCLE_2CYCLE)
@@ -1889,7 +1889,7 @@ void BaseRenderer::PrepareTexRectUVs(TexCoord * puv0, TexCoord * puv1)
 	if (rdp_tile.mirror_s)	size_x *= 2;
 	if (rdp_tile.mirror_t)	size_y *= 2;
 
-#ifdef DAEDALUS_GL
+#if defined(DAEDALUS_GLES) || defined(DAEDALUS_GL)
 	// If using shift, we need to take it into account here.
 	offset.s = ApplyShift(offset.s, rdp_tile.shift_s);
 	offset.t = ApplyShift(offset.t, rdp_tile.shift_t);
@@ -1951,7 +1951,7 @@ void BaseRenderer::SetScissor( u32 x0, u32 y0, u32 x1, u32 y1 )
 	// N.B. Think the arguments are x0,y0,x1,y1, and not x,y,w,h as the docs describe
 	//printf("%d %d %d %d\n", s32(screen_tl.x),s32(screen_tl.y),s32(screen_br.x),s32(screen_br.y));
 	sceGuScissor( l, t, r, b );
-#elif defined(DAEDALUS_GL) || defined(DAEDALUS_CTR)
+#elif defined(DAEDALUS_GL) || defined(DAEDALUS_CTR) || defined(DAEDALUS_GLES) 
 	// NB: OpenGL is x,y,w,h. Errors if width or height is negative, so clamp this.
 	s32 w = std::max<s32>( r - l, 0 );
 	s32 h = std::max<s32>( b - t, 0 );

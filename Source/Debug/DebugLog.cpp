@@ -26,7 +26,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 
 #include <fstream>
+#if defined(GCC_LEGACY)
+#include <fmt/core.h> 
+#else 
 #include <format>
+#endif
 #include <iostream> 
 #include "Utility/Paths.h"
 #ifdef DAEDALUS_LOG

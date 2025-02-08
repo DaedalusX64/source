@@ -1,0 +1,297 @@
+#version 310 es
+
+precision highp float;
+precision highp int;
+
+// --------------------------------------------------------
+// 1. Macro trick to avoid redefinition of built-in in ES 3.0
+// --------------------------------------------------------
+#ifdef GL_ES
+#if __VERSION__ < 310
+    // Only apply if we really end up at ES 3.0 environment
+    #define texelFetch myTexelFetch
+#endif
+#endif
+
+// --------------------------------------------------------
+// 2. Provide the actual function body for our "texelFetch" calls
+// --------------------------------------------------------
+vec4 myTexelFetch(sampler2D tex, ivec2 coords, int lod)
+{
+    // Emulate texelFetch(...) on a float sampler2D
+    ivec2 size = textureSize(tex, 0);
+    vec2 uv    = (vec2(coords) + 0.5) / vec2(size);
+    return textureLod(tex, uv, 0.0);
+}
+
+// --------------------------------------------------------
+// Your original uniform declarations
+// --------------------------------------------------------
+uniform sampler2D uTexture0;
+uniform sampler2D uTexture1;
+
+uniform vec2 uTexScale0;		
+uniform vec2 uTexScale1;
+uniform vec4 uPrimColour;
+uniform vec4 uEnvColour;
+uniform float uPrimLODFrac;
+
+// Inputs from the vertex shader
+in vec2 v_st;
+in vec4 v_col;
+
+// Final fragment color
+out vec4 fragcol;
+
+// Tiling / Clamping
+uniform bvec2 uTileClampEnable0;
+uniform ivec2 uTileTL0;    // 10.2 fixed point
+uniform ivec2 uTileBR0;    // 10.2 fixed point
+uniform vec2  uTileShift0; // floating point
+uniform ivec2 uTileMask0;  // 10.5 fixed point
+uniform ivec2 uTileMirror0;// 10.5 fixed point
+
+uniform bvec2 uTileClampEnable1;
+uniform ivec2 uTileTL1;
+uniform ivec2 uTileBR1;
+uniform vec2  uTileShift1;
+uniform ivec2 uTileMask1;
+uniform ivec2 uTileMirror1;
+
+// Example uniform
+uniform int uFoo;
+
+// --------------------------------------------------------
+// Helper Functions (optimized)
+// --------------------------------------------------------
+
+// Replace mix on ivec2 by using the ternary operator for each component.
+ivec2 imix(ivec2 a, ivec2 b, bvec2 c)
+{
+    return ivec2(c.x ? b.x : a.x, c.y ? b.y : a.y);
+}
+
+// Multiply an integer vector by a float vector.
+ivec2 shift(ivec2 coord, vec2 shift_scale)
+{
+    return ivec2(float(coord.x) * shift_scale.x, float(coord.y) * shift_scale.y);
+}
+
+ivec2 clampPoint(ivec2 coord,
+                 ivec2 tile_tl,
+                 ivec2 tile_br,
+                 bvec2 clamp_enable)
+{
+    ivec2 coord_clamped = clamp(coord, tile_tl << 3, tile_br << 3);
+    ivec2 coord_out     = imix(coord, coord_clamped, clamp_enable);
+    ivec2 coord_relative = ((coord_out >> 3) - tile_tl) >> 2;
+    return coord_relative;
+}
+
+ivec2 clampBilinear(ivec2 coord,
+                    ivec2 tile_tl,
+                    ivec2 tile_br,
+                    bvec2 clamp_enable,
+                    out ivec2 frac)
+{
+    ivec2 tl = tile_tl << 3;  // Precompute shifted tile top‐left.
+    ivec2 br = tile_br << 3;  
+    ivec2 coord_clamped = clamp(coord, tl, br);
+    ivec2 coord_out     = imix(coord, coord_clamped, clamp_enable);
+    ivec2 coord_relative = coord_out - tl; // Use tl instead of recomputing (tile_tl << 3)
+    frac = coord_relative & 0x1f;      
+    return coord_relative >> 5;        
+}
+
+ivec2 mask(ivec2 coord, ivec2 mirror_bits, ivec2 mask_bits)
+{
+    bvec2 mirror = notEqual(coord & mirror_bits, ivec2(0));
+    coord = imix(coord, ~coord, mirror);
+    coord &= mask_bits;
+    return coord;
+}
+
+vec4 bilinear(vec4 col_00, vec4 col_01,
+              vec4 col_10, vec4 col_11,
+              ivec2 frac)
+{
+    vec2 fracf = vec2(frac) / 32.0;
+    vec4 a = mix(col_00, col_10, fracf.x);
+    vec4 b = mix(col_01, col_11, fracf.x);
+    return mix(a, b, fracf.y);
+}
+
+vec4 bilinear_n64(vec4 col_00, vec4 col_01,
+                  vec4 col_10, vec4 col_11,
+                  ivec2 frac)
+{
+    bool upper     = (frac.x + frac.y) >= 0x20;
+    bvec4 uppersel = bvec4(upper);
+    vec4 col0  = mix(col_00, col_11, uppersel);
+    vec4 col1  = mix(col_10, col_01, uppersel);
+    vec4 col2  = mix(col_01, col_10, uppersel);
+    vec2 fracf = vec2(imix(frac, 0x20 - frac, bvec2(upper, upper))) / 32.0;
+    vec4 colA = col0 + (fracf.x * (col1 - col0));
+    vec4 colB = col0 + (fracf.y * (col2 - col0));
+    return clamp(colA + colB - col0, 0.0, 1.0);
+}
+
+// --------------------------------------------------------
+// Texture Fetch Functions
+// --------------------------------------------------------
+
+vec4 fetchBilinear(ivec2 st_in,
+                   vec2 shift_scale,
+                   ivec2 mirror_bits,
+                   ivec2 mask_bits,
+                   ivec2 tile_tl,
+                   ivec2 tile_br,
+                   bvec2 clamp_enable,
+                   sampler2D tex,
+                   vec2 tex_scale)
+{
+    ivec2 frac;
+    ivec2 uv0 = st_in;
+    uv0 = shift(uv0, shift_scale);
+    uv0 = clampBilinear(uv0, tile_tl, tile_br, clamp_enable, frac);
+    ivec2 uv1 = uv0 + ivec2(1);
+    uv0 = mask(uv0, mirror_bits, mask_bits);
+    uv1 = mask(uv1, mirror_bits, mask_bits);
+    vec4 col_00 = texelFetch(tex, uv0, 0);
+    vec4 col_01 = texelFetch(tex, ivec2(uv0.x, uv1.y), 0);
+    vec4 col_10 = texelFetch(tex, ivec2(uv1.x, uv0.y), 0);
+    vec4 col_11 = texelFetch(tex, uv1, 0);
+    return bilinear(col_00, col_01, col_10, col_11, frac);
+}
+
+vec4 fetchBilinearClampedCommon(
+    vec2 st_in,
+    vec2 shift_scale,
+    ivec2 mirror_bits,
+    ivec2 mask_bits,
+    ivec2 tile_tl,
+    ivec2 tile_br,
+    bvec2 clamp_enable,
+    sampler2D tex,
+    vec2 tex_scale,
+    ivec2 bilerp_wrap_enable)
+{
+    ivec2 frac;
+    ivec2 uv0 = ivec2(st_in);
+    uv0 = shift(uv0, shift_scale);
+    uv0 = clampBilinear(uv0, tile_tl, tile_br, clamp_enable, frac);
+    ivec2 uv1 = uv0 + ivec2(1);
+    uv0 = mask(uv0, mirror_bits, mask_bits);
+    uv1 = mask(uv1, mirror_bits, mask_bits);
+    // If uv1 < uv0, remove some fractional bits.
+    frac = imix(frac, frac & bilerp_wrap_enable, lessThan(uv1, uv0));
+    vec4 col_00 = texelFetch(tex, uv0, 0);
+    vec4 col_01 = texelFetch(tex, ivec2(uv0.x, uv1.y), 0);
+    vec4 col_10 = texelFetch(tex, ivec2(uv1.x, uv0.y), 0);
+    vec4 col_11 = texelFetch(tex, uv1, 0);
+    return bilinear(col_00, col_01, col_10, col_11, frac);
+}
+
+vec4 fetchBilinearClampedS(
+    vec2 st_in,
+    vec2 shift_scale,
+    ivec2 mirror_bits,
+    ivec2 mask_bits,
+    ivec2 tile_tl,
+    ivec2 tile_br,
+    bvec2 clamp_enable,
+    sampler2D tex,
+    vec2 tex_scale)
+{
+    return fetchBilinearClampedCommon(
+        st_in, shift_scale, mirror_bits, mask_bits,
+        tile_tl, tile_br, clamp_enable, tex, tex_scale,
+        ivec2(0, -1));
+}
+
+vec4 fetchBilinearClampedT(
+    vec2 st_in,
+    vec2 shift_scale,
+    ivec2 mirror_bits,
+    ivec2 mask_bits,
+    ivec2 tile_tl,
+    ivec2 tile_br,
+    bvec2 clamp_enable,
+    sampler2D tex,
+    vec2 tex_scale)
+{
+    return fetchBilinearClampedCommon(
+        st_in, shift_scale, mirror_bits, mask_bits,
+        tile_tl, tile_br, clamp_enable, tex, tex_scale,
+        ivec2(-1, 0));
+}
+
+vec4 fetchBilinearClampedST(
+    vec2 st_in,
+    vec2 shift_scale,
+    ivec2 mirror_bits,
+    ivec2 mask_bits,
+    ivec2 tile_tl,
+    ivec2 tile_br,
+    bvec2 clamp_enable,
+    sampler2D tex,
+    vec2 tex_scale)
+{
+    return fetchBilinearClampedCommon(
+        st_in, shift_scale, mirror_bits, mask_bits,
+        tile_tl, tile_br, clamp_enable, tex, tex_scale,
+        ivec2(0, 0));
+}
+
+vec4 fetchPoint(
+    ivec2 st_in,
+    vec2 shift_scale,
+    ivec2 mirror_bits,
+    ivec2 mask_bits,
+    ivec2 tile_tl,
+    ivec2 tile_br,
+    bvec2 clamp_enable,
+    sampler2D tex,
+    vec2 tex_scale)
+{
+    ivec2 uv = st_in;
+    uv = shift(uv, shift_scale);
+    uv = clampPoint(uv, tile_tl, tile_br, clamp_enable);
+    uv = mask(uv, mirror_bits, mask_bits);
+    return texelFetch(tex, uv, 0);
+}
+
+vec4 fetchCopy(
+    ivec2 st_in,
+    vec2 shift_scale,
+    ivec2 mirror_bits,
+    ivec2 mask_bits,
+    ivec2 tile_tl,
+    ivec2 tile_br,
+    bvec2 clamp_enable,
+    sampler2D tex,
+    vec2 tex_scale)
+{
+    ivec2 uv = st_in;
+    uv = shift(uv, shift_scale);
+    uv = (((uv >> 3) - tile_tl) >> 2) & ivec2(0x1fff);
+    uv = mask(uv, mirror_bits, mask_bits);
+    return texelFetch(tex, uv, 0);
+}
+
+vec4 fetchSimple(
+    vec2 st_in,
+    vec2 shift_scale,
+    ivec2 mirror_bits,
+    ivec2 mask_bits,
+    ivec2 tile_tl,
+    ivec2 tile_br,
+    bvec2 clamp_enable,
+    sampler2D tex,
+    vec2 tex_scale)
+{
+    ivec2 uv = ivec2(st_in);
+    uv = shift(uv, shift_scale);
+    vec2 uvf = (vec2(uv) - vec2(tile_tl << 3)) * (tex_scale / 32.0);
+    return texture(tex, uvf);
+}

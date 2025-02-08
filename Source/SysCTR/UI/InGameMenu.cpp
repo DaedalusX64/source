@@ -1,7 +1,11 @@
 #include <3ds.h>
 #include <GL/picaGL.h>
 #include <stdio.h>
+#if defined(GCC_LEGACY)
+#include <fmt/core.h> 
+#else 
 #include <format>
+#endif
 
 #include "UserInterface.h"
 #include "InGameMenu.h"
@@ -45,7 +49,12 @@ static void ExecSaveState(int slot)
 	savePath /= name;
 	std::filesystem::create_directories(savePath);
 
-	std::string filename = std::format("saveslot{}.ss", slot);
+		#if defined(GCC_LEGACY)
+		std::string filename = fmt::format("saveslot{}.ss", slot);
+		#else 
+		std::string filename = std::format("saveslot{}.ss", slot);
+		#endif
+	
 	savePath /= filename;
 
 	std::cout << "Save Save Slot Path" << savePath << std::endl;
@@ -59,7 +68,13 @@ static void LoadSaveState(int slot)
 	savePath /= name;
 	std::filesystem::create_directories(savePath);
 
-	std::string filename = std::format("saveslot{}.ss", slot);
+		#if defined(GCC_LEGACY)
+		std::string filename = fmt::format("saveslot{}.ss", slot);
+		#else 
+		std::string filename = std::format("saveslot{}.ss", slot);
+		#endif
+
+	
 	savePath /= filename;
 
 	std::cout << "Load Save Slot Path" << savePath << std::endl;
@@ -75,10 +90,16 @@ static bool SaveStateExists(int slot)
 	savePath /= name;
 	std::filesystem::create_directories(savePath);
 
-	std::string filename = std::format("saveslot{}.ss", slot);
+		#if defined(GCC_LEGACY)
+		std::string filename = fmt::format("saveslot{}.ss", slot);
+		#else 
+		std::string filename = std::format("saveslot{}.ss", slot);
+		#endif
+
+	
 	savePath /= filename;
 
-	// std::string path = std::format("{}/{}{}.ss", "SaveStates", g_ROM.settings.GameName.c_str(), slot);
+	// std::string path = fmt::format("{}/{}{}.ss", "SaveStates", g_ROM.settings.GameName.c_str(), slot);
 	// full_path = path;
 		std::cout << "Slot Exists Path" << savePath << std::endl;
 	// snprintf(full_path, sizeof(full_path), "%s%s.ss%d", DAEDALUS_CTR_PATH("SaveStates/"), g_ROM.settings.GameName.c_str(), slot);

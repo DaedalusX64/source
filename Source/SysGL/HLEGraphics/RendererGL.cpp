@@ -672,16 +672,23 @@ void RendererGL::RenderDaedalusVtx(int prim, const DaedalusVtx * vertices, int c
 
 void RendererGL::RenderDaedalusVtxStreams(int prim, const float * positions, const TexCoord * uvs, const u32 * colours, int count)
 {
-	glBindBuffer(GL_ARRAY_BUFFER, gVBOs[kPositionBuffer]);
-	glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(float) * 3 * count, positions);
+    // --- Update positions ---
+    glBindBuffer(GL_ARRAY_BUFFER, gVBOs[kPositionBuffer]);
+    // Orphan the buffer (allocate full size with NULL data)
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 3 * kMaxVertices, NULL, GL_DYNAMIC_DRAW);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(float) * 3 * count, positions);
 
-	glBindBuffer(GL_ARRAY_BUFFER, gVBOs[kTexCoordBuffer]);
-	glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(TexCoord) * count, uvs);
+    // --- Update texture coordinates ---
+    glBindBuffer(GL_ARRAY_BUFFER, gVBOs[kTexCoordBuffer]);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(TexCoord) * kMaxVertices, NULL, GL_DYNAMIC_DRAW);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(TexCoord) * count, uvs);
 
-	glBindBuffer(GL_ARRAY_BUFFER, gVBOs[kColorBuffer]);
-	glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(u32) * count, colours);
+    // --- Update colors ---
+    glBindBuffer(GL_ARRAY_BUFFER, gVBOs[kColorBuffer]);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(u32) * kMaxVertices, NULL, GL_DYNAMIC_DRAW);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(u32) * count, colours);
 
-	glDrawArrays(prim, 0, count);
+    glDrawArrays(prim, 0, count);
 }
 
 /*

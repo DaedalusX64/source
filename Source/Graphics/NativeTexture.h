@@ -27,8 +27,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <memory>
 #include <filesystem>
 
-#ifdef DAEDALUS_GL
+#if defined(DAEDALUS_GL)
 #include "SysGL/GL.h"
+#endif
+#if defined(DAEDALUS_GLES)
+#include "SysGLES/GL.h"
 #endif
 
 #ifdef DAEDALUS_CTR
@@ -87,11 +90,11 @@ class CNativeTexture
 		void *				mpData;
 		void *				mpPalette;
 
-#if defined(DAEDALUS_GL) || (DAEDALUS_CTR)
+#if defined(DAEDALUS_GL) || defined(DAEDALUS_CTR) || defined(DAEDALUS_GLES)
 		GLuint				mTextureId;
 #endif
 
-#if defined(DAEDALUS_PSP) || defined(DAEDALUS_CTR)
+#if defined(DAEDALUS_PSP) || defined(DAEDALUS_CTR) || defined(DAEDALUS_GLES)
 		v2					mScale;
 		bool				mIsDataVidMem;
 		bool				mIsPaletteVidMem;

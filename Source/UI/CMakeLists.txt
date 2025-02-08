@@ -26,6 +26,10 @@ if(DAEDALUS_GL)
 target_include_directories(UI PUBLIC ${OPENGL_INCLUDE_DIR} ${GLEW_INCLUDE_DIRS})
 endif(DAEDALUS_GL)
 
+if(DAEDALUS_GLES)
+target_include_directories(UI PUBLIC ${OPENGLES_INCLUDE_DIR})
+endif(DAEDALUS_GLES)
+
 if(DAEDALUS_PROFILE_UI)
 target_compile_options(UI PRIVATE -pg)
 endif(DAEDALUS_PROFILE_UI)

@@ -146,6 +146,16 @@ if(DAEDALUS_GL)
     add_compile_definitions(DAEDALUS_GL)
 endif()
 
+if(GCC_LEGACY)
+    message("GCC_LEGACY=ON")
+    add_compile_definitions(GCC_LEGACY)
+endif()
+
+if(DAEDALUS_GLES)
+    message("DAEDALUS_GLES=ON")
+    add_compile_definitions(DAEDALUS_GLES)
+endif()
+
 if(DUMPOSFUNCTIONS)
     message("DUMPOSFUNCTIONS=ON")
     add_compile_definitions(DUMPOSFUNCTIONS)

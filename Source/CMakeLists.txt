@@ -10,6 +10,16 @@ set(CMAKE_CXX_STANDARD 23)
 #TODO: Separate SDL Options
 list(APPEND plat_main )
 
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    	message(STATUS "GCC detected: ${CMAKE_CXX_COMPILER_VERSION}")
+    
+    	if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "13.0")
+        	message(STATUS "GCC version is older than 13. Using LibFormat.")
+        	message("GCC_LEGACY=ON")
+    		option(GCC_LEGACY "Use LibFormat" ON)
+    	endif()
+endif()
+
 
 ## if DEBUG is added to the build_daedalus script it will execute teh Debug section otherwise by default do release.
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -120,12 +130,19 @@ else()
 		option(DAEDALUS_ENABLE_OS_HOOKS "Enable High Level Emulation Hooks" ON) 
 
 	elseif(UNIX)
+		if ((${CMAKE_SYSTEM_PROCESSOR} STREQUAL "aarch64" AND CMAKE_SYSTEM_NAME STREQUAL "Linux") OR (${CMAKE_SYSTEM_PROCESSOR} STREQUAL "armv" AND CMAKE_SYSTEM_NAME STREQUAL "Linux"))
+			option(DAEDALUS_GLES "OpenGLES 3.1 Renderer" ON)
+		else()
+		option(DAEDALUS_GL "OpenGL Renderer" ON)
+		endif()
 		option(DAEDALUS_SDL "SDL Build" ON)
 		option(DAEDALUS_POSIX "Posix specific options" ON)
 		option(DAEDALUS_ACCURATE_TMEM "Accurate TMEM" ON)
 		option(DAEDALUS_128BIT_MULT "128 Bit Multiplication, not supported on PSP" ON)
 		option(DAEDALUS_ACCURATE_CVT "Convert using the rounding mode specified in the Floating Control/Status register (FCSR)" ON)
-		option(DAEDALUS_GL "OpenGL Renderer" ON)
+
+		
+
 	elseif(WIN32)
 		option(DAEDALUS_SDL "SDL Build" ON)
 		option(DAED_USE_VIRTUAL_ALLOC "Use Windows Memory specifiers" ON) # We probably need to remove and simplfy this using modern C++
@@ -211,6 +228,11 @@ endif(CTR)
 
 if(DAEDALUS_SDL)
 	find_package(SDL2 CONFIG REQUIRED)
+
+	if(GCC_LEGACY)
+	find_package(fmt REQUIRED)
+	endif(GCC_LEGACY)
+
 	link_libraries(SDL2::SDL2)
 	link_libraries(${SDL2_LIBRARIES})
 
@@ -225,6 +247,11 @@ if(DAEDALUS_SDL)
 		endif()
 	endif()
 endif(DAEDALUS_SDL)
+
+if(DAEDALUS_GLES)
+	find_package(OpenGL REQUIRED)
+	link_libraries(OpenGL::GL)
+endif(DAEDALUS_GLES)
 
 if(DAEDALUS_GL)
 	find_package(OpenGL REQUIRED)
@@ -260,7 +287,15 @@ link_libraries(ZLIB::ZLIB)
 	endif()
 	if(UNIX)
 		add_subdirectory(SysPosix)
+		
+		if(DAEDALUS_GL)
 		add_subdirectory(SysGL)
+		endif(DAEDALUS_GL)
+
+		if(DAEDALUS_GLES)
+		add_subdirectory(SysGLES)
+		endif(DAEDALUS_GLES)
+
 	elseif(WIN32) ## Probably keep this generic as we'll build this on Linux too?
 		add_subdirectory(SysGL)
 		add_subdirectory(SysW32)
@@ -269,12 +304,16 @@ link_libraries(ZLIB::ZLIB)
 	elseif(PSP)
 		add_subdirectory(SysPSP)
 	endif()
-
+	
 	# ---  Build ---- 
 	add_executable(daedalus ${plat_main})
-
-	target_link_libraries(daedalus PRIVATE ${daed_libs} ${default_libraries} ${sys_libraries})
-
+	
+	if(GCC_LEGACY)
+	target_link_libraries(daedalus PRIVATE ${daed_libs} ${default_libraries} ${sys_libraries} fmt::fmt)
+	else()
+	target_link_libraries(daedalus PRIVATE ${daed_libs} ${default_libraries} ${sys_libraries} )
+	endif(GCC_LEGACY)
+	
 	# --- Post Build ---
 	## PRX Builds add about 600kb to the binary as they're not stripped at this point. Maybe we 
 	if(PSP)

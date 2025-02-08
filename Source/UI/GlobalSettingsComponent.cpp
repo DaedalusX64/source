@@ -297,7 +297,7 @@ IGlobalSettingsComponent::IGlobalSettingsComponent( CUIContext * p_context )
 	mElements.Add(std::make_unique<CInfoSetting>( "Display Info", "Whether to show additional info while the rom is running. Some modes are only available in DEBUG mode") );
 	mElements.Add(std::make_unique<CViewPortSetting>( "Viewport Size", "The size of the viewport on the PSP." ) );
 
-#if DEADALUS_PSP
+#if DAEDALUS_PSP
 	if (HAVE_DVE && PSP_TV_CABLE > 0)
 	{
 		mElements.Add(std::make_unique<CBoolSetting>( &gGlobalPreferences.TVEnable, "TV Output", "Whether to direct the video to the TV out.", "Yes", "No" ) );

@@ -24,7 +24,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <vector>
 #include <iostream>
 #include <string>
+#if defined(GCC_LEGACY)
+#include <fmt/core.h> 
+#else 
 #include <format>
+#endif
 #include <fstream> 
 #include <sstream>
 
@@ -227,7 +231,12 @@ void Translate_Dump(const std::string string, bool dump)
 
 	if (fh.is_open())
 		{
-			fh << std::format("{:08x},{}\n", HashString(string), string);
+		#if defined(GCC_LEGACY)
+		fh << fmt::format("{:08x},{}\n", HashString(string), string);
+		#else 
+		fh << std::format("{:08x},{}\n", HashString(string), string);
+		#endif
+			
 		}
 	}
 }
