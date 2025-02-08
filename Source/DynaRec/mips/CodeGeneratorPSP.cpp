@@ -38,6 +38,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "Base/Macros.h"
 #include "Debug/PrintOpCode.h"
 #include "Utility/Profiler.h"
+#include "CodeGeneratorPSP.h"
 
 using namespace AssemblyUtils;
 
@@ -155,9 +156,6 @@ bool			gHaveSavedPatchedOps = false;
 PspOpCode		gOriginalOps[2];
 PspOpCode		gReplacementOps[2];
 
-#define URO_HI_SIGN_EXTEND 0	// Sign extend from src
-#define URO_HI_CLEAR	   1	// Clear hi bits
-
 void Dynarec_ClearedCPUStuffToDo()
 {
 	// Replace first two ops of _ReturnFromDynaRecIfStuffToDo with 'jr ra, nop'
@@ -266,6 +264,7 @@ const EPspReg	gRegistersToUseForCaching[] =
 //	PspReg_K0,		//Used as load base register. Normally it is reserved for Kernel but seems to work if we borrow it...(could come back and bite us if we use kernel stuff?) //Corn
 //	PspReg_K1,		//Used as store base register. Normally it is reserved for Kernel but seems to work if we borrow it...(could come back and bite us if we use kernel stuff?)
 //	PspReg_GP,		//This needs saving to work?
+	PspReg_Invalid // last one
 };
 }
 
@@ -276,13 +275,11 @@ const EPspReg	gRegistersToUseForCaching[] =
 //
 
 CCodeGeneratorPSP::CCodeGeneratorPSP( CAssemblyBuffer * p_buffer_a, CAssemblyBuffer * p_buffer_b )
-:	CCodeGenerator( )
+:	CCodeGeneratorImpl<EPspReg>( gRegistersToUseForCaching )
 ,	CAssemblyWriterPSP( p_buffer_a, p_buffer_b )
 ,	mpBasePointer( nullptr )
 ,	mBaseRegister( PspReg_S8 )		// TODO
 ,	mEntryAddress( 0 )
-,	mLoopTop( nullptr )
-,	mUseFixedRegisterAllocation( false )
 {
 }
 
@@ -295,6 +292,8 @@ void	CCodeGeneratorPSP::Initialise( u32 entry_address, u32 exit_address, u32 * h
 
 	mpBasePointer = reinterpret_cast< const u8 * >( p_base );
 	SetRegisterSpanList( register_usage, entry_address == exit_address );
+	if (entry_address == exit_address)
+		mLoopTop = GetAssemblyBuffer()->GetLabel();
 
 	mPreviousLoadBase = N64Reg_R0;	//Invalidate
 	mPreviousStoreBase = N64Reg_R0;	//Invalidate
@@ -324,196 +323,6 @@ void	CCodeGeneratorPSP::Finalise( ExceptionHandlerFn p_exception_handler_fn, con
 }
 
 
-//
-
-void	CCodeGeneratorPSP::SetRegisterSpanList( const SRegisterUsageInfo & register_usage, bool loops_to_self )
-{
-	mRegisterSpanList = register_usage.SpanList;
-
-	// Sort in order of increasing start point
-	std::sort( mRegisterSpanList.begin(), mRegisterSpanList.end(), SAscendingSpanStartSort() );
-
-	const u32 NUM_CACHE_REGS( sizeof(gRegistersToUseForCaching) / sizeof(gRegistersToUseForCaching[0]) );
-
-	// Push all the available registers in reverse order (i.e. use temporaries later)
-	// Use temporaries first so we can avoid flushing them in case of a funcion call //Corn
-		#ifdef DAEDALUS_ENABLE_ASSERTS
-	DAEDALUS_ASSERT( mAvailableRegisters.empty(), "Why isn't the available register list empty?" );
-	#endif
-	for( u32 i {0}; i < NUM_CACHE_REGS; i++ )
-	{
-		mAvailableRegisters.push( gRegistersToUseForCaching[ i ] );
-	}
-
-	// Optimization for self looping code
-	if( gDynarecLoopOptimisation & loops_to_self )
-	{
-		mUseFixedRegisterAllocation = true;
-		u32		cache_reg_idx( 0 );
-		u32		HiLo {0};
-		while ( HiLo<2 )		// If there are still unused registers, assign to high part of reg
-		{
-			RegisterSpanList::const_iterator span_it = mRegisterSpanList.begin();
-			while( span_it < mRegisterSpanList.end() )
-			{
-				const SRegisterSpan &	span( *span_it );
-				if( cache_reg_idx < NUM_CACHE_REGS )
-				{
-					EPspReg		cachable_reg( gRegistersToUseForCaching[cache_reg_idx] );
-					mRegisterCache.SetCachedReg( span.Register, HiLo, cachable_reg );
-					cache_reg_idx++;
-				}
-				++span_it;
-			}
-			++HiLo;
-		}
-		//
-		//	Pull all the cached registers into memory
-		//
-		// Skip r0
-		u32 i {1};
-		while( i < NUM_N64_REGS )
-		{
-			EN64Reg	n64_reg = EN64Reg( i );
-			u32 lo_hi_idx {};
-			while( lo_hi_idx < 2)
-			{
-				if( mRegisterCache.IsCached( n64_reg, lo_hi_idx ) )
-				{
-					PrepareCachedRegister( n64_reg, lo_hi_idx );
-
-					//
-					//	If the register is modified anywhere in the fragment, we need
-					//	to mark it as dirty so it's flushed correctly on exit.
-					//
-					if( register_usage.IsModified( n64_reg ) )
-					{
-						mRegisterCache.MarkAsDirty( n64_reg, lo_hi_idx, true );
-					}
-				}
-				++lo_hi_idx;
-			}
-			++i;
-		}
-		mLoopTop = GetAssemblyBuffer()->GetLabel();
-	} //End of Loop optimization code
-}
-
-
-//
-
-void	CCodeGeneratorPSP::ExpireOldIntervals( u32 instruction_idx )
-{
-	// mActiveIntervals is held in order of increasing end point
-	for(RegisterSpanList::iterator span_it = mActiveIntervals.begin(); span_it < mActiveIntervals.end(); ++span_it )
-	{
-		const SRegisterSpan &	span( *span_it );
-
-		if( span.SpanEnd >= instruction_idx )
-		{
-			break;
-		}
-
-		// This interval is no longer active - flush the register and return it to the list of available regs
-		EPspReg		psp_reg( mRegisterCache.GetCachedReg( span.Register, 0 ) );
-
-		FlushRegister( mRegisterCache, span.Register, 0, true );
-
-		mRegisterCache.ClearCachedReg( span.Register, 0 );
-
-		mAvailableRegisters.push( psp_reg );
-
-		span_it = mActiveIntervals.erase( span_it );
-	}
-}
-
-
-//
-
-void	CCodeGeneratorPSP::SpillAtInterval( const SRegisterSpan & live_span )
-{
-	#ifdef DAEDALUS_ENABLE_ASSERTS
-	DAEDALUS_ASSERT( !mActiveIntervals.empty(), "There are no active intervals" );
-	#endif
-	const SRegisterSpan &	last_span( mActiveIntervals.back() );		// Spill the last active interval (it has the greatest end point)
-
-	if( last_span.SpanEnd > live_span.SpanEnd )
-	{
-		// Uncache the old span
-		EPspReg		psp_reg( mRegisterCache.GetCachedReg( last_span.Register, 0 ) );
-		FlushRegister( mRegisterCache, last_span.Register, 0, true );
-		mRegisterCache.ClearCachedReg( last_span.Register, 0 );
-
-		// Cache the new span
-		mRegisterCache.SetCachedReg( live_span.Register, 0, psp_reg );
-
-		mActiveIntervals.pop_back();				// Remove the last span
-		mActiveIntervals.push_back( live_span );	// Insert in order of increasing end point
-
-		std::sort( mActiveIntervals.begin(), mActiveIntervals.end(), SAscendingSpanEndSort() );		// XXXX - will be quicker to insert in the correct place rather than sorting each time
-	}
-	else
-	{
-		// There is no space for this register - we just don't update the register cache info, so we save/restore it from memory as needed
-	}
-}
-
-
-//
-
-void	CCodeGeneratorPSP::UpdateRegisterCaching( u32 instruction_idx )
-{
-	if( !mUseFixedRegisterAllocation )
-	{
-		ExpireOldIntervals( instruction_idx );
-
-		for(RegisterSpanList::const_iterator span_it = mRegisterSpanList.begin(); span_it < mRegisterSpanList.end(); ++span_it )
-		{
-			const SRegisterSpan &	span( *span_it );
-
-			// As we keep the intervals sorted in order of SpanStart, we can exit as soon as we encounter a SpanStart in the future
-			if( instruction_idx < span.SpanStart )
-			{
-				break;
-			}
-
-			// Only process live intervals
-			if( (instruction_idx >= span.SpanStart) & (instruction_idx <= span.SpanEnd) )
-			{
-				if( !mRegisterCache.IsCached( span.Register, 0 ) )
-				{
-					if( mAvailableRegisters.empty() )
-					{
-						SpillAtInterval( span );
-					}
-					else
-					{
-						// Use this register for caching
-						mRegisterCache.SetCachedReg( span.Register, 0, mAvailableRegisters.top() );
-
-						// Pop this register from the available list
-						mAvailableRegisters.pop();
-						mActiveIntervals.push_back( span );		// Insert in order of increasing end point
-
-						std::sort( mActiveIntervals.begin(), mActiveIntervals.end(), SAscendingSpanEndSort() );		// XXXX - will be quicker to insert in the correct place rather than sorting each time
-					}
-				}
-			}
-		}
-	}
-}
-
-
-//
-
-RegisterSnapshotHandle	CCodeGeneratorPSP::GetRegisterSnapshot()
-{
-	RegisterSnapshotHandle	handle( mRegisterSnapshots.size() );
-
-	mRegisterSnapshots.push_back( mRegisterCache );
-
-	return handle;
-}
 
 
 //
@@ -539,232 +348,7 @@ u32	CCodeGeneratorPSP::GetCompiledCodeSize() const
 	return GetAssemblyBuffer()->GetSize();
 }
 
-
-//Get a (cached) N64 register mapped to a PSP register(usefull for dst register)
-
-EPspReg	CCodeGeneratorPSP::GetRegisterNoLoad( EN64Reg n64_reg, u32 lo_hi_idx, EPspReg scratch_reg )
-{
-	if( mRegisterCache.IsCached( n64_reg, lo_hi_idx ) )
-	{
-		return mRegisterCache.GetCachedReg( n64_reg, lo_hi_idx );
-	}
-	else
-	{
-		return scratch_reg;
-	}
-}
-
-
-//Load value from an emulated N64 register or known value to a PSP register
-
-void	CCodeGeneratorPSP::GetRegisterValue( EPspReg psp_reg, EN64Reg n64_reg, u32 lo_hi_idx )
-{
-	if( mRegisterCache.IsKnownValue( n64_reg, lo_hi_idx ) )
-	{
-		//printf( "Loading %s[%d] <- %08x\n", RegNames[ n64_reg ], lo_hi_idx, mRegisterCache.GetKnownValue( n64_reg, lo_hi_idx ) );
-		LoadConstant( psp_reg, mRegisterCache.GetKnownValue( n64_reg, lo_hi_idx )._s32 );
-		if( mRegisterCache.IsCached( n64_reg, lo_hi_idx ) )
-		{
-			mRegisterCache.MarkAsValid( n64_reg, lo_hi_idx, true );
-			mRegisterCache.MarkAsDirty( n64_reg, lo_hi_idx, true );
-			mRegisterCache.ClearKnownValue( n64_reg, lo_hi_idx );
-		}
-	}
-	else
-	{
-		GetVar( psp_reg, lo_hi_idx ? &gGPR[ n64_reg ]._u32_1 : &gGPR[ n64_reg ]._u32_0 );
-	}
-}
-
-
-//Get (cached) N64 register value mapped to a PSP register (or scratch reg)
-//and also load the value if not loaded yet(usefull for src register)
-
-EPspReg	CCodeGeneratorPSP::GetRegisterAndLoad( EN64Reg n64_reg, u32 lo_hi_idx, EPspReg scratch_reg )
-{
-	EPspReg		reg;
-	bool		need_load( false );
-
-	if( mRegisterCache.IsCached( n64_reg, lo_hi_idx ) )
-	{
-//		gTotalRegistersCached++;
-		reg = mRegisterCache.GetCachedReg( n64_reg, lo_hi_idx );
-
-		// We're loading it below, so set the valid flag
-		if( !mRegisterCache.IsValid( n64_reg, lo_hi_idx ) )
-		{
-			need_load = true;
-			mRegisterCache.MarkAsValid( n64_reg, lo_hi_idx, true );
-		}
-	}
-	else if( n64_reg == N64Reg_R0 )
-	{
-		reg = PspReg_R0;
-	}
-	else
-	{
-//		gTotalRegistersUncached++;
-		reg = scratch_reg;
-		need_load = true;
-	}
-
-	if( need_load )
-	{
-		GetRegisterValue( reg, n64_reg, lo_hi_idx );
-	}
-
-	return reg;
-}
-
-
-//	Similar to GetRegisterAndLoad, but ALWAYS loads into the specified psp register
-
-void CCodeGeneratorPSP::LoadRegister( EPspReg psp_reg, EN64Reg n64_reg, u32 lo_hi_idx )
-{
-	if( mRegisterCache.IsCached( n64_reg, lo_hi_idx ) )
-	{
-		EPspReg	cached_reg( mRegisterCache.GetCachedReg( n64_reg, lo_hi_idx ) );
-
-//		gTotalRegistersCached++;
-
-		// Load the register if it's currently invalid
-		if( !mRegisterCache.IsValid( n64_reg,lo_hi_idx ) )
-		{
-			GetRegisterValue( cached_reg, n64_reg, lo_hi_idx );
-			mRegisterCache.MarkAsValid( n64_reg, lo_hi_idx, true );
-		}
-
-		// Copy the register if necessary
-		if( psp_reg != cached_reg )
-		{
-			OR( psp_reg, cached_reg, PspReg_R0 );
-		}
-	}
-	else if( n64_reg == N64Reg_R0 )
-	{
-		OR( psp_reg, PspReg_R0, PspReg_R0 );
-	}
-	else
-	{
-//		gTotalRegistersUncached++;
-		GetRegisterValue( psp_reg, n64_reg, lo_hi_idx );
-	}
-}
-
-
-//	This function pulls in a cached register so that it can be used at a later point.
-//	This is usally done when we have a branching instruction - it guarantees that
-//	the register is valid regardless of whether or not the branch is taken.
-
-void	CCodeGeneratorPSP::PrepareCachedRegister( EN64Reg n64_reg, u32 lo_hi_idx )
-{
-	if( mRegisterCache.IsCached( n64_reg, lo_hi_idx ) )
-	{
-		EPspReg	cached_reg( mRegisterCache.GetCachedReg( n64_reg, lo_hi_idx ) );
-
-		// Load the register if it's currently invalid
-		if( !mRegisterCache.IsValid( n64_reg,lo_hi_idx ) )
-		{
-			GetRegisterValue( cached_reg, n64_reg, lo_hi_idx );
-			mRegisterCache.MarkAsValid( n64_reg, lo_hi_idx, true );
-		}
-	}
-}
-
-
 //
-
-void CCodeGeneratorPSP::StoreRegister( EN64Reg n64_reg, u32 lo_hi_idx, EPspReg psp_reg )
-{
-	mRegisterCache.ClearKnownValue( n64_reg, lo_hi_idx );
-
-	if( mRegisterCache.IsCached( n64_reg, lo_hi_idx ) )
-	{
-		EPspReg	cached_reg( mRegisterCache.GetCachedReg( n64_reg, lo_hi_idx ) );
-
-//		gTotalRegistersCached++;
-
-		// Update our copy as necessary
-		if( psp_reg != cached_reg )
-		{
-			OR( cached_reg, psp_reg, PspReg_R0 );
-		}
-		mRegisterCache.MarkAsDirty( n64_reg, lo_hi_idx, true );
-		mRegisterCache.MarkAsValid( n64_reg, lo_hi_idx, true );
-	}
-	else
-	{
-//		gTotalRegistersUncached++;
-
-		SetVar( lo_hi_idx ? &gGPR[ n64_reg ]._u32_1 : &gGPR[ n64_reg ]._u32_0, psp_reg );
-
-		mRegisterCache.MarkAsDirty( n64_reg, lo_hi_idx, false );
-	}
-}
-
-
-//
-
-void CCodeGeneratorPSP::SetRegister64( EN64Reg n64_reg, s32 lo_value, s32 hi_value )
-{
-	SetRegister( n64_reg, 0, lo_value );
-	SetRegister( n64_reg, 1, hi_value );
-}
-
-
-//	Set the low 32 bits of a register to a known value (and hence the upper
-//	32 bits are also known though sign extension)
-
-inline void CCodeGeneratorPSP::SetRegister32s( EN64Reg n64_reg, s32 value )
-{
-	//SetRegister64( n64_reg, value, value >= 0 ? 0 : 0xffffffff );
-	SetRegister64( n64_reg, value, value >> 31 );
-}
-
-
-//
-
-inline void CCodeGeneratorPSP::SetRegister( EN64Reg n64_reg, u32 lo_hi_idx, u32 value )
-{
-	mRegisterCache.SetKnownValue( n64_reg, lo_hi_idx, value );
-	mRegisterCache.MarkAsDirty( n64_reg, lo_hi_idx, true );
-	if( mRegisterCache.IsCached( n64_reg, lo_hi_idx ) )
-	{
-		mRegisterCache.MarkAsValid( n64_reg, lo_hi_idx, false );		// The actual cache is invalid though!
-	}
-}
-
-
-//
-
-void CCodeGeneratorPSP::UpdateRegister( EN64Reg n64_reg, EPspReg psp_reg, bool options )
-{
-	//if(n64_reg == N64Reg_R0) return;	//Try to modify R0!!!
-
-	StoreRegisterLo( n64_reg, psp_reg );
-
-	//Skip storing sign extension on some regs //Corn
-	if( N64Reg_DontNeedSign( n64_reg ) ) return;
-
-	if( options == URO_HI_SIGN_EXTEND )
-	{
-		EPspReg scratch_reg = PspReg_V0;
-		if( mRegisterCache.IsCached( n64_reg, 1 ) )
-		{
-			scratch_reg = mRegisterCache.GetCachedReg( n64_reg, 1 );
-		}
-		SRA( scratch_reg, psp_reg, 0x1f );		// Sign extend
-		StoreRegisterHi( n64_reg, scratch_reg );
-	}
-	else	// == URO_HI_CLEAR
-	{
-		SetRegister( n64_reg, 1, 0 );
-	}
-}
-
-
-//
-
 EPspFloatReg	CCodeGeneratorPSP::GetFloatRegisterAndLoad( EN64FloatReg n64_reg )
 {
 	EPspFloatReg	psp_reg = EPspFloatReg( n64_reg );	// 1:1 mapping
@@ -847,61 +431,6 @@ inline void CCodeGeneratorPSP::UpdateSimDoubleRegister( EN64FloatReg n64_reg )
 }
 
 
-//
-
-const CN64RegisterCachePSP & CCodeGeneratorPSP::GetRegisterCacheFromHandle( RegisterSnapshotHandle snapshot ) const
-{
-	#ifdef DAEDALUS_ENABLE_ASSERTS
-	DAEDALUS_ASSERT( snapshot.Handle < mRegisterSnapshots.size(), "Invalid snapshot handle" );
-	#endif
-	return mRegisterSnapshots[ snapshot.Handle ];
-}
-
-
-//	Flush a specific register back to memory if dirty.
-//	Clears the dirty flag and invalidates the contents if specified
-
-void CCodeGeneratorPSP::FlushRegister( CN64RegisterCachePSP & cache, EN64Reg n64_reg, u32 lo_hi_idx, bool invalidate )
-{
-	if( cache.IsDirty( n64_reg, lo_hi_idx ) )
-	{
-		if( cache.IsKnownValue( n64_reg, lo_hi_idx ) )
-		{
-			s32		known_value( cache.GetKnownValue( n64_reg, lo_hi_idx )._s32 );
-
-			SetVar( lo_hi_idx ? &gGPR[ n64_reg ]._u32_1 : &gGPR[ n64_reg ]._u32_0, known_value );
-		}
-		else if( cache.IsCached( n64_reg, lo_hi_idx ) )
-		{
-			#ifdef DAEDALUS_ENABLE_ASSERTS
-			DAEDALUS_ASSERT( cache.IsValid( n64_reg, lo_hi_idx ), "Register is dirty but not valid?" );
-			#endif
-			EPspReg	cached_reg( cache.GetCachedReg( n64_reg, lo_hi_idx ) );
-
-			SetVar( lo_hi_idx ? &gGPR[ n64_reg ]._u32_1 : &gGPR[ n64_reg ]._u32_0, cached_reg );
-		}
-		#ifdef DAEDALUS_DEBUG_CONSOLE
-		else
-		{
-			DAEDALUS_ERROR( "Register is dirty, but not known or cached" );
-		}
-		#endif
-		// We're no longer dirty
-		cache.MarkAsDirty( n64_reg, lo_hi_idx, false );
-	}
-
-	// Invalidate the register, so we pick up any values the function might have changed
-	if( invalidate )
-	{
-		cache.ClearKnownValue( n64_reg, lo_hi_idx );
-		if( cache.IsCached( n64_reg, lo_hi_idx ) )
-		{
-			cache.MarkAsValid( n64_reg, lo_hi_idx, false );
-		}
-	}
-}
-
-
 //	This function flushes all dirty registers back to memory
 //	If the invalidate flag is set this also invalidates the known value/cached
 //	register. This is primarily to ensure that we keep the register set
@@ -914,14 +443,8 @@ void	CCodeGeneratorPSP::FlushAllRegisters( CN64RegisterCachePSP & cache, bool in
 	mMultIsValid = false;	//Mult hi/lo are invalid
 
 	// Skip r0
-	for( u32 i = 1; i < NUM_N64_REGS; i++ )
-	{
-		EN64Reg	n64_reg = EN64Reg( i );
-
-		FlushRegister( cache, n64_reg, 0, invalidate );
-		FlushRegister( cache, n64_reg, 1, invalidate );
-	}
-
+	FlushAllGenericRegisters(cache, invalidate);
+	
 	FlushAllFloatingPointRegisters( cache, invalidate );
 }
 
@@ -2381,7 +1904,7 @@ inline void	CCodeGeneratorPSP::GenerateCACHE( EN64Reg base, s16 offset, u32 cach
 	if(cache == 0 && (action == 0 || action == 4))
 	{
 		FlushAllRegisters(mRegisterCache, true);
-		LoadRegister(PspReg_A0, base, 0);
+		CCodeGeneratorImpl<EPspReg>::LoadRegister(PspReg_A0, base, 0);
 		ADDI(PspReg_A0, PspReg_A0, offset);
 		JAL( CCodeLabel( reinterpret_cast< const void * >( CPU_InvalidateICacheRange ) ), false );
 		ORI(PspReg_A1, PspReg_R0, 0x20);

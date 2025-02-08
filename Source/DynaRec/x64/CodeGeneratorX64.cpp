@@ -52,112 +52,22 @@ void Dynarec_SetCPUStuffToDo()
 {
 }
 
-//*****************************************************************************
-//	Register Caching
-//*****************************************************************************
-class CRegisterStatus
-{
-	struct CachedRegInfo
-	{
-		EIntelReg iCachedIReg;	// INVALID_CODE if uncached, else ???_CODE of intel reg we're cached in
-		bool	BLoValid;		// If cached, true if value in intel register is valid
-		bool	BLoDirty;		// If cached, true if value has been modified
-
-		u32		HiValue;		// If BHiUnknown is false, this is the value of the register (through setmipshi..)
-		bool	BHiDirty;		// Do we need to write information about this register back to memory?
-		bool	BHiUnknown;		// If true, we don't know the value of this register
-	};
-public:
-
-	void Reset()
-	{
-		for (u32 i = 0; i < NUM_REGISTERS; i++)
-		{
-			SetCachedReg( i, INVALID_CODE );
-			MarkAsValid( i, false );
-			MarkAsDirty( i, false );
-
-			MarkHiAsDirty( i, false );
-			MarkHiAsUnknown( i, true );
-			SetHiValue( i, 0 );		// Ignored
-		}
-	}
-
-	inline void MarkAsValid( u32 mreg, bool valid )
-	{
-		mCachedRegisterInfo[mreg].BLoValid = valid;
-	}
-
-	inline bool IsValid( u32 mreg ) const
-	{
-		return mCachedRegisterInfo[mreg].BLoValid;
-	}
-
-	inline bool IsDirty( u32 mreg ) const
-	{
-		return mCachedRegisterInfo[mreg].BLoDirty;
-	}
-
-	inline void MarkAsDirty( u32 mreg, bool dirty )
-	{
-		mCachedRegisterInfo[mreg].BLoDirty = dirty;
-	}
-
-	inline EIntelReg GetCachedReg( u32 mreg ) const
-	{
-		return mCachedRegisterInfo[mreg].iCachedIReg;
-	}
-
-	inline void SetCachedReg( u32 mreg, EIntelReg reg )
-	{
-		mCachedRegisterInfo[mreg].iCachedIReg = reg;
-	}
-
-	inline void MarkHiAsUnknown( u32 mreg, bool unk )
-	{
-		mCachedRegisterInfo[mreg].BHiUnknown = unk;
-	}
-
-	inline void MarkHiAsDirty( u32 mreg, bool dirty )
-	{
-		mCachedRegisterInfo[mreg].BHiDirty = dirty;
-	}
-
-	inline bool IsHiDirty( u32 mreg ) const
-	{
-		return mCachedRegisterInfo[mreg].BHiDirty;
-	}
-
-	inline bool IsHiUnknown( u32 mreg ) const
-	{
-		return mCachedRegisterInfo[mreg].BHiUnknown;
-	}
-
-	inline void SetHiValue( u32 mreg, u32 value )
-	{
-		mCachedRegisterInfo[mreg].HiValue = value;
-	}
-
-	inline u32 GetHiValue( u32 mreg ) const
-	{
-		return mCachedRegisterInfo[mreg].HiValue;
-	}
-
-private:
-	static const u32	NUM_REGISTERS = 32;
-	CachedRegInfo		mCachedRegisterInfo[NUM_REGISTERS];
-};
-
-
-static CRegisterStatus	gRegisterStatus;
 static u32				gIntelRegUsageMap[NUM_X64_REGISTERS];
 static u32				gWriteCheck[NUM_MIPS_REGISTERS];
+
+static const EIntelReg	gRegistersToUseForCaching[] = {
+//	RCX_CODE,
+//	RDX_CODE,
+	RSI_CODE,
+	RDI_CODE,
+	RBP_CODE,
+};
 
 //*****************************************************************************
 //
 //*****************************************************************************
 CCodeGeneratorX64::CCodeGeneratorX64( CAssemblyBuffer * p_primary, CAssemblyBuffer * p_secondary )
-:	CCodeGenerator( )
+:	CCodeGeneratorImpl<EIntelReg>( gRegistersToUseForCaching )
 ,	CAssemblyWriterX64( p_primary )
 ,	mSpCachedInESI( false )
 ,	mSetSpPostUpdate( 0 )
@@ -218,23 +128,6 @@ void	CCodeGeneratorX64::Initialise( u32 entry_address, u32 exit_address, u32 * h
 	// }
 
 	// p_base/span_list ignored for now
-}
-
-//*****************************************************************************
-//
-//*****************************************************************************
-void	CCodeGeneratorX64::UpdateRegisterCaching( u32 instruction_idx )
-{
-	// This is ignored for now
-}
-
-//*****************************************************************************
-//
-//*****************************************************************************
-RegisterSnapshotHandle	CCodeGeneratorX64::GetRegisterSnapshot()
-{
-	// This doesn't do anything useful yet.
-	return RegisterSnapshotHandle( 0 );
 }
 
 //*****************************************************************************
@@ -392,6 +285,15 @@ void CCodeGeneratorX64::GenerateExceptionHander( ExceptionHandlerFn p_exception_
 void	CCodeGeneratorX64::SetVar( u32 * p_var, u32 value )
 {
 	MOVI_MEM( p_var, value );
+}
+
+void	CCodeGeneratorX64::SetVar( u32 * p_var, EIntelReg reg )
+{
+	MOV_MEM_REG(p_var, reg);
+}
+
+void CCodeGeneratorX64::GetVar(EIntelReg dst_reg, const u32 *p_var) {
+	MOV_REG_MEM(dst_reg, p_var);
 }
 
 //*****************************************************************************

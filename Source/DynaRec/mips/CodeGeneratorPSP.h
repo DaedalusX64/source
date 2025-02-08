@@ -34,17 +34,13 @@ class CAssemblyBuffer;
 
 using CN64RegisterCachePSP = CN64RegisterCache<EPspReg>;
 
-class CCodeGeneratorPSP : public CCodeGenerator, public CAssemblyWriterPSP
+class CCodeGeneratorPSP : public CCodeGeneratorImpl<EPspReg>, public CAssemblyWriterPSP
 {
 	public:
 		CCodeGeneratorPSP( CAssemblyBuffer * p_buffer_a, CAssemblyBuffer * p_buffer_b );
 
 		virtual void				Initialise( u32 entry_address, u32 exit_address, u32 * hit_counter, const void * p_base, const SRegisterUsageInfo & register_usage );
 		virtual void				Finalise( ExceptionHandlerFn p_exception_handler_fn, const std::vector< CJumpLocation > & exception_handler_jumps, const std::vector< RegisterSnapshotHandle>& exception_handler_snapshots );
-
-		virtual void				UpdateRegisterCaching( u32 instruction_idx );
-
-		virtual RegisterSnapshotHandle	GetRegisterSnapshot();
 
 		virtual CCodeLabel			GetEntryPoint() const;
 		virtual CCodeLabel			GetCurrentLocation() const;
@@ -61,11 +57,11 @@ class CCodeGeneratorPSP : public CCodeGenerator, public CAssemblyWriterPSP
 		virtual CJumpLocation		ExecuteNativeFunction( CCodeLabel speed_hack, bool check_return = false );
 
 private:
-		// Not virtual base
-				void				SetVar( u32 * p_var, u32 value );
-				void				SetVar( u32 * p_var, EPspReg reg_src );
+
+				void				SetVar( u32 * p_var, u32 value ) override;
+				void				SetVar( u32 * p_var, EPspReg reg_src ) override;
 				void				SetFloatVar( f32 * p_var, EPspFloatReg reg_src );
-				void				GetVar( EPspReg dst_reg, const u32 * p_var );
+				void				GetVar( EPspReg dst_reg, const u32 * p_var ) override;
 				void				GetFloatVar( EPspFloatReg dst_reg, const f32 * p_var );
 				void				GetBaseRegisterAndOffset( const void * p_address, EPspReg * p_reg, s16 * p_offset );
 
@@ -209,47 +205,9 @@ private:
 				void				GenerateSRAV( EN64Reg rd, EN64Reg rs, EN64Reg rt );
 
 private:
-				void				SetRegisterSpanList( const SRegisterUsageInfo & register_usage, bool loops_to_self );
-
-				void				ExpireOldIntervals( u32 instruction_idx );
-				void				SpillAtInterval( const SRegisterSpan & live_span );
-
-				EPspReg				GetRegisterNoLoad( EN64Reg n64_reg, u32 lo_hi_idx, EPspReg scratch_reg );
-				EPspReg				GetRegisterNoLoadLo( EN64Reg n64_reg, EPspReg scratch_reg )		{ return GetRegisterNoLoad( n64_reg, 0, scratch_reg ); }
-				EPspReg				GetRegisterNoLoadHi( EN64Reg n64_reg, EPspReg scratch_reg )		{ return GetRegisterNoLoad( n64_reg, 1, scratch_reg ); }
-
-				EPspReg				GetRegisterAndLoad( EN64Reg n64_reg, u32 lo_hi_idx, EPspReg scratch_reg );
-				EPspReg				GetRegisterAndLoadLo( EN64Reg n64_reg, EPspReg scratch_reg )	{ return GetRegisterAndLoad( n64_reg, 0, scratch_reg ); }
-				EPspReg				GetRegisterAndLoadHi( EN64Reg n64_reg, EPspReg scratch_reg )	{ return GetRegisterAndLoad( n64_reg, 1, scratch_reg ); }
-
-				void				GetRegisterValue( EPspReg psp_reg, EN64Reg n64_reg, u32 lo_hi_idx );
-
-				void				LoadRegister( EPspReg psp_reg, EN64Reg n64_reg, u32 lo_hi_idx );
-				void				LoadRegisterLo( EPspReg psp_reg, EN64Reg n64_reg )				{ LoadRegister( psp_reg, n64_reg, 0 ); }
-				void				LoadRegisterHi( EPspReg psp_reg, EN64Reg n64_reg )				{ LoadRegister( psp_reg, n64_reg, 1 ); }
-
-				void				PrepareCachedRegister( EN64Reg n64_reg, u32 lo_hi_idx );
-				void				PrepareCachedRegisterLo( EN64Reg n64_reg )						{ PrepareCachedRegister( n64_reg, 0 ); }
-				void				PrepareCachedRegisterHi( EN64Reg n64_reg )						{ PrepareCachedRegister( n64_reg, 1 ); }
-
-				void				StoreRegister( EN64Reg n64_reg, u32 lo_hi_idx, EPspReg psp_reg );
-				void				StoreRegisterLo( EN64Reg n64_reg, EPspReg psp_reg )				{ StoreRegister( n64_reg, 0, psp_reg ); }
-				void				StoreRegisterHi( EN64Reg n64_reg, EPspReg psp_reg )				{ StoreRegister( n64_reg, 1, psp_reg ); }
-
-				void				SetRegister64( EN64Reg n64_reg, s32 lo_value, s32 hi_value );
-
-				void				SetRegister32s( EN64Reg n64_reg, s32 value );
-
-				void				SetRegister( EN64Reg n64_reg, u32 lo_hi_idx, u32 value );
-				/*
-				enum EUpdateRegOptions
-				{
-					URO_HI_SIGN_EXTEND,		// Sign extend from src
-					URO_HI_CLEAR,			// Clear hi bits
-				};
-				*/
-				void				UpdateRegister( EN64Reg n64_reg, EPspReg psp_reg, bool options );
-
+				void				LoadConstant( EPspReg reg, s32 value ) override { this->LoadConstant(reg, value);}
+				void				Copy(EPspReg src_reg, EPspReg dest_reg) override {OR( dest_reg, src_reg, PspReg_R0 );}
+				void 				SignedExtend(EPspReg src_reg, EPspReg dest_reg) override { SRA( dest_reg, src_reg, 0x1f );}
 
 				EPspFloatReg		GetFloatRegisterAndLoad( EN64FloatReg n64_reg );
 				void				UpdateFloatRegister( EN64FloatReg n64_reg );
@@ -257,9 +215,6 @@ private:
 				EPspFloatReg		GetSimFloatRegisterAndLoad( EN64FloatReg n64_reg );
 				void				UpdateSimDoubleRegister( EN64FloatReg n64_reg );
 
-				const CN64RegisterCachePSP & GetRegisterCacheFromHandle( RegisterSnapshotHandle snapshot ) const;
-
-				void				FlushRegister( CN64RegisterCachePSP & cache, EN64Reg n64_reg, u32 lo_hi_idx, bool invalidate );
 				void				FlushAllRegisters( CN64RegisterCachePSP & cache, bool invalidate );
 				void				FlushAllFloatingPointRegisters( CN64RegisterCachePSP & cache, bool invalidate );
 				void				FlushAllTemporaryRegisters( CN64RegisterCachePSP & cache, bool invalidate );
@@ -300,18 +255,8 @@ private:
 private:
 				const u8 *			mpBasePointer;
 				EPspReg				mBaseRegister;
-				RegisterSpanList	mRegisterSpanList;
 
 				u32					mEntryAddress;
-				CCodeLabel			mLoopTop;
-				bool				mUseFixedRegisterAllocation;
-
-				std::vector< CN64RegisterCachePSP >	mRegisterSnapshots;
-				CN64RegisterCachePSP	mRegisterCache;
-
-				// For register allocation
-				RegisterSpanList	mActiveIntervals;
-				std::stack<EPspReg>	mAvailableRegisters;
 
 				bool							mQuickLoad;
 

@@ -33,7 +33,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define FLAG_C_LE		(FLAG_SWAP|0x41)		// je -   ! gt
 #define FLAG_C_EQ		(FLAG_SWAP|0x40)		// je -   ! eq
 
-class CCodeGeneratorX86 : public CCodeGenerator, public CAssemblyWriterX86
+class CCodeGeneratorX86 : public CCodeGeneratorImpl<EIntelReg>, public CAssemblyWriterX86
 {
 	public:
 		CCodeGeneratorX86( CAssemblyBuffer * p_primary, CAssemblyBuffer * p_secondary );

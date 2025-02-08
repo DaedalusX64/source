@@ -193,6 +193,8 @@ class CAssemblyWriterX64
 				CJumpLocation		JumpConditionalLong( CCodeLabel target, u8 jump_type );
 
 
+		void X64_EXT(EIntelReg &reg1, EIntelReg &reg2, bool is64reg, bool is64addr);
+
 		inline void EmitBYTE(u8 byte)
 		{
 			mpAssemblyBuffer->EmitBYTE( byte );

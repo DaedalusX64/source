@@ -52,104 +52,6 @@ void Dynarec_SetCPUStuffToDo()
 {
 }
 
-//*****************************************************************************
-//	Register Caching
-//*****************************************************************************
-class CRegisterStatus
-{
-	struct CachedRegInfo
-	{
-		EIntelReg iCachedIReg;	// INVALID_CODE if uncached, else ???_CODE of intel reg we're cached in
-		bool	BLoValid;		// If cached, true if value in intel register is valid
-		bool	BLoDirty;		// If cached, true if value has been modified
-
-		u32		HiValue;		// If BHiUnknown is false, this is the value of the register (through setmipshi..)
-		bool	BHiDirty;		// Do we need to write information about this register back to memory?
-		bool	BHiUnknown;		// If true, we don't know the value of this register
-	};
-public:
-
-	void Reset()
-	{
-		for (u32 i = 0; i < NUM_REGISTERS; i++)
-		{
-			SetCachedReg( i, INVALID_CODE );
-			MarkAsValid( i, false );
-			MarkAsDirty( i, false );
-
-			MarkHiAsDirty( i, false );
-			MarkHiAsUnknown( i, true );
-			SetHiValue( i, 0 );		// Ignored
-		}
-	}
-
-	inline void MarkAsValid( u32 mreg, bool valid )
-	{
-		mCachedRegisterInfo[mreg].BLoValid = valid;
-	}
-
-	inline bool IsValid( u32 mreg ) const
-	{
-		return mCachedRegisterInfo[mreg].BLoValid;
-	}
-
-	inline bool IsDirty( u32 mreg ) const
-	{
-		return mCachedRegisterInfo[mreg].BLoDirty;
-	}
-
-	inline void MarkAsDirty( u32 mreg, bool dirty )
-	{
-		mCachedRegisterInfo[mreg].BLoDirty = dirty;
-	}
-
-	inline EIntelReg GetCachedReg( u32 mreg ) const
-	{
-		return mCachedRegisterInfo[mreg].iCachedIReg;
-	}
-
-	inline void SetCachedReg( u32 mreg, EIntelReg reg )
-	{
-		mCachedRegisterInfo[mreg].iCachedIReg = reg;
-	}
-
-	inline void MarkHiAsUnknown( u32 mreg, bool unk )
-	{
-		mCachedRegisterInfo[mreg].BHiUnknown = unk;
-	}
-
-	inline void MarkHiAsDirty( u32 mreg, bool dirty )
-	{
-		mCachedRegisterInfo[mreg].BHiDirty = dirty;
-	}
-
-	inline bool IsHiDirty( u32 mreg ) const
-	{
-		return mCachedRegisterInfo[mreg].BHiDirty;
-	}
-
-	inline bool IsHiUnknown( u32 mreg ) const
-	{
-		return mCachedRegisterInfo[mreg].BHiUnknown;
-	}
-
-	inline void SetHiValue( u32 mreg, u32 value )
-	{
-		mCachedRegisterInfo[mreg].HiValue = value;
-	}
-
-	inline u32 GetHiValue( u32 mreg ) const
-	{
-		return mCachedRegisterInfo[mreg].HiValue;
-	}
-
-private:
-	static const u32	NUM_REGISTERS = 32;
-	CachedRegInfo		mCachedRegisterInfo[NUM_REGISTERS];
-};
-
-
-static CRegisterStatus	gRegisterStatus;
 static u32				gIntelRegUsageMap[NUM_X86_REGISTERS];
 static u32				gWriteCheck[NUM_MIPS_REGISTERS];
 
@@ -157,7 +59,7 @@ static u32				gWriteCheck[NUM_MIPS_REGISTERS];
 //
 //*****************************************************************************
 CCodeGeneratorX86::CCodeGeneratorX86( CAssemblyBuffer * p_primary, CAssemblyBuffer * p_secondary )
-:	CCodeGenerator( )
+:	CCodeGeneratorImpl<EIntelReg>( )
 ,	CAssemblyWriterX86( p_primary )
 ,	mSpCachedInESI( false )
 ,	mSetSpPostUpdate( 0 )

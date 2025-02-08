@@ -43,34 +43,29 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define THIRD_PARAM_REG_CODE RDX_CODE
 #endif
 
-class CCodeGeneratorX64 : public CCodeGenerator, public CAssemblyWriterX64
+class CCodeGeneratorX64 : public CCodeGeneratorImpl<EIntelReg>, public CAssemblyWriterX64
 {
 	public:
 		CCodeGeneratorX64( CAssemblyBuffer * p_primary, CAssemblyBuffer * p_secondary );
 
-		virtual void				Initialise( u32 entry_address, u32 exit_address, u32 * hit_counter, const void * p_base, const SRegisterUsageInfo & register_usage );
-		virtual void				Finalise( ExceptionHandlerFn p_exception_handler_fn, const std::vector< CJumpLocation > & exception_handler_jumps, const std::vector<RegisterSnapshotHandle>& exception_handler_snapshots );
+		void				Initialise( u32 entry_address, u32 exit_address, u32 * hit_counter, const void * p_base, const SRegisterUsageInfo & register_usage ) override;
+		void				Finalise( ExceptionHandlerFn p_exception_handler_fn, const std::vector< CJumpLocation > & exception_handler_jumps, const std::vector<RegisterSnapshotHandle>& exception_handler_snapshots ) override;
 
-		virtual void				UpdateRegisterCaching( u32 instruction_idx );
+		CCodeLabel			GetEntryPoint() const override;
+		CCodeLabel			GetCurrentLocation() const override;
+		u32					GetCompiledCodeSize() const override;
 
-		virtual RegisterSnapshotHandle	GetRegisterSnapshot();
+		CJumpLocation		GenerateExitCode( u32 exit_address, u32 jump_address, u32 num_instructions, CCodeLabel next_fragment ) override;
+		void				GenerateEretExitCode( u32 num_instructions, CIndirectExitMap * p_map ) override;
+		void				GenerateIndirectExitCode( u32 num_instructions, CIndirectExitMap * p_map ) override;
 
-		virtual CCodeLabel			GetEntryPoint() const;
-		virtual CCodeLabel			GetCurrentLocation() const;
-		virtual u32					GetCompiledCodeSize() const;
+		void				GenerateBranchHandler( CJumpLocation branch_handler_jump, RegisterSnapshotHandle snapshot ) override;
 
-		virtual	CJumpLocation		GenerateExitCode( u32 exit_address, u32 jump_address, u32 num_instructions, CCodeLabel next_fragment );
-		virtual void				GenerateEretExitCode( u32 num_instructions, CIndirectExitMap * p_map );
-		virtual void				GenerateIndirectExitCode( u32 num_instructions, CIndirectExitMap * p_map );
+		CJumpLocation		GenerateOpCode( const STraceEntry& ti, bool branch_delay_slot, const SBranchDetails * p_branch, CJumpLocation * p_branch_jump) override;
 
-		virtual void				GenerateBranchHandler( CJumpLocation branch_handler_jump, RegisterSnapshotHandle snapshot );
-
-		virtual CJumpLocation		GenerateOpCode( const STraceEntry& ti, bool branch_delay_slot, const SBranchDetails * p_branch, CJumpLocation * p_branch_jump);
-
-		virtual CJumpLocation		ExecuteNativeFunction( CCodeLabel speed_hack, bool check_return );
+		CJumpLocation		ExecuteNativeFunction( CCodeLabel speed_hack, bool check_return ) override;
 
 	private:
-				void				SetVar( u32 * p_var, u32 value );
 				void				SetVar8( u32 * p_var, u8 value );
 
 				CJumpLocation		GenerateBranchAlways( CCodeLabel target );
@@ -127,6 +122,20 @@ class CCodeGeneratorX64 : public CCodeGenerator, public CAssemblyWriterX64
 
 				void 	GenerateDADDU( EN64Reg rd, EN64Reg rs, EN64Reg rt );
 				void	GenerateDSUBU( EN64Reg rd, EN64Reg rs, EN64Reg rt );
+
+protected:
+	void SetVar(u32 *p_var, u32 value) override;
+	void SetVar(u32 *p_var, EIntelReg reg_src) override;
+	void GetVar(EIntelReg dst_reg, const u32 *p_var) override;
+	void LoadConstant(EIntelReg reg, s32 value) override {
+		MOVI(reg, value);
+	}
+	void Copy(EIntelReg src_reg, EIntelReg dest_reg) override {
+		MOV(dest_reg, src_reg, false);
+	}
+	void SignedExtend(EIntelReg src_reg, EIntelReg dest_reg) override {
+		MOVSX(dest_reg, src_reg, false);
+	}
 };
 
 #endif // SYSW32_DYNAREC_X64_CODEGENERATORX64_H_

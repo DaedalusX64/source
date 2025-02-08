@@ -34,6 +34,8 @@ enum EPspReg
 	PspReg_S4, PspReg_S5, PspReg_S6, PspReg_S7,
 	PspReg_T8, PspReg_T9, PspReg_K0, PspReg_K1,
 	PspReg_GP, PspReg_SP, PspReg_S8, PspReg_RA,
+
+	PspReg_Invalid = -1
 };
 
 enum EPspFloatReg
@@ -45,11 +47,12 @@ enum EPspFloatReg
 
 };
 
+// always zero register
+#define ALWAYS_ZERO_REG PspReg_R0
+#define SCRATCH_REG PspReg_V0
+
 // Return true if this register is temporary (i.e. not saved across function calls)
 inline bool	Reg_IsTemporary( EPspReg psp_reg )	{ return (0xB300FFFF >> psp_reg) & 1;}
-
-// Return true if this register dont need sign extension //Corn
-inline bool	N64Reg_DontNeedSign( EN64Reg n64_reg )	{ return (0x30000001 >> n64_reg) & 1;}
 
 struct PspOpCode
 {
